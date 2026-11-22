@@ -1,0 +1,6 @@
+build/
+.DS_Store
+relay/node_modules/
+relay/.wrangler/
+relay/package-lock.json
+*.xcuserstate
