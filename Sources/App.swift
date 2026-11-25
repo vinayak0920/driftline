@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = hosting
         popover.contentSize = NSSize(width: PopoverMetrics.width, height: PopoverMetrics.height)
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false  // no zoom-in "pop": the panel appears at its final size
 
         monitor.onTick = { [weak self] in
             guard let self else { return }
