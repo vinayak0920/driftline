@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let friends = FriendsController()
     private let ui = UIState()
     private let mixer = AppVolumeMixer()
+    private let updater = Updater()
     private var buddyPanel: BuddyPanelController!
     private var friendsObserver: AnyCancellable?
     private var flash: (emoji: String, until: Date)?
@@ -41,9 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageOnly
         }
 
-        let hosting = NSHostingController(rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends, mixer: mixer, ui: ui))
-        hosting.sizingOptions = .preferredContentSize
+        let hosting = NSHostingController(rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends, mixer: mixer, updater: updater, ui: ui))
+        // Fixed size: the popover never resizes when you switch tabs or a banner appears.
+        hosting.sizingOptions = []
+        hosting.view.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.width, height: PopoverMetrics.height)
         popover.contentViewController = hosting
+        popover.contentSize = NSSize(width: PopoverMetrics.width, height: PopoverMetrics.height)
         popover.behavior = .transient
         popover.animates = true
 
@@ -80,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         friends.start()
         mixer.start()
+        updater.start()
         buddyPanel.refresh()
 
         awakeObserver = awake.objectWillChange.sink { [weak self] _ in

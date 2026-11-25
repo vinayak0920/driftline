@@ -7,9 +7,11 @@ struct PopoverView: View {
     @ObservedObject var awake: AwakeController
     @ObservedObject var friends: FriendsController
     @ObservedObject var mixer: AppVolumeMixer
+    @ObservedObject var updater: Updater
 
     @AppStorage(Prefs.useBitsKey) private var useBits = true
     @AppStorage(Prefs.menuStyleKey) private var menuStyle = MenuStyle.stacked.rawValue
+    @AppStorage(Updater.autoCheckKey) private var autoUpdate = true
     @ObservedObject var ui: UIState
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -23,6 +25,8 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, 10)
+
+            UpdateBanner(updater: updater)
 
             Picker("", selection: $ui.tab) {
                 ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
@@ -42,14 +46,15 @@ struct PopoverView: View {
                 }
             }
             .padding(16)
-            .frame(height: 360, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
 
             Divider().opacity(0.5)
             footer
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
         }
-        .frame(width: 390)
+        .frame(width: PopoverMetrics.width, height: PopoverMetrics.height)
     }
 
     private var networkLabel: String {
@@ -99,6 +104,10 @@ struct PopoverView: View {
                 ))
                 Divider()
                 Button("Reset session stats") { monitor.resetSession() }
+                Divider()
+                Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }
+                Toggle("Check for updates automatically", isOn: $autoUpdate)
+                Text("Version \(updater.currentVersion)")
                 Divider()
                 Button("Quit Driftline") { NSApp.terminate(nil) }
             } label: {
@@ -669,5 +678,48 @@ struct LogoMark: View {
                 .stroke(Color.driftDown, style: StrokeStyle(lineWidth: 2, lineCap: .round))
             }
         }
+    }
+}
+
+// MARK: - Update banner
+
+struct UpdateBanner: View {
+    @ObservedObject var updater: Updater
+
+    var body: some View {
+        switch updater.state {
+        case .available(let release):
+            banner {
+                Image(systemName: "arrow.down.circle.fill").foregroundStyle(Color.driftDown)
+                Text("Driftline \(release.version) is available")
+                    .font(.system(size: 11.5, weight: .semibold))
+                Spacer()
+                Button("Update") { updater.installAvailable() }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.driftDown)
+            }
+        case .downloading(let progress):
+            banner {
+                Text("Downloading update…").font(.system(size: 11))
+                ProgressView(value: progress).progressViewStyle(.linear).tint(.driftDown)
+            }
+        case .installing:
+            banner {
+                ProgressView().controlSize(.small)
+                Text("Installing. Driftline will reopen in a moment.").font(.system(size: 11))
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func banner<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 8) { content() }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Color.driftDown.opacity(0.12)))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
     }
 }

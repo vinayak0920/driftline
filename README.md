@@ -56,6 +56,7 @@ bash build.sh --install
 | `Sources/AwakeController.swift` | Keep Awake through standard macOS power assertions (the same mechanism `caffeinate` uses). |
 | `Sources/Friends.swift`, `Buddy.swift` | Friends rooms over a WebSocket, encrypted messages (AES-GCM, key derived from the room code), and code-drawn animated characters. |
 | `Sources/Mixer.swift` | Per-app volume using Core Audio process taps: each adjusted app's audio is tapped, its original muted, and played back with your volume. |
+| `Sources/Updater.swift` | Checks GitHub Releases, asks the user, verifies the update's signature, installs and relaunches. |
 | `relay/` | The Cloudflare Worker that links Friends rooms: one Durable Object per room, using WebSocket hibernation. |
 
 ## Privacy
@@ -78,9 +79,20 @@ npx wrangler deploy
 
 Then build with your URL: `RELAY_URL=https://driftline-relay.<you>.workers.dev bash build.sh --install`.
 
+## Automatic updates
+
+Driftline checks this repo's latest GitHub release shortly after launch and every 6 hours. When a newer version exists it asks the user, then downloads it, **verifies its Ed25519 signature**, replaces the app and relaunches. Unsigned or tampered downloads are never installed; the user is sent to the release page instead. Users can turn automatic checks off in the gear menu.
+
+One-time setup (creates the signing key on your Mac, stores the private half as a GitHub secret and the public half in `Info.plist`):
+
+```bash
+bash scripts/setup-updates.sh
+git add Info.plist && git commit -m "Add update signing key" && git push
+```
+
 ## Releasing (maintainers)
 
-Push a version tag. GitHub Actions builds the universal app and attaches `Driftline.zip` to a new release:
+Push a version tag. GitHub Actions builds the universal app, signs it, and attaches `Driftline.zip` and `Driftline.zip.sig` to a new release. Every installed copy (1.1 and later) then offers the update:
 
 ```bash
 git tag v1.0.1 && git push origin v1.0.1

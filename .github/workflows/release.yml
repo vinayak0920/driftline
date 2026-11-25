@@ -20,11 +20,24 @@ jobs:
           RELAY_URL: https://driftline-relay.vinayakapavin.workers.dev
         run: VERSION="${GITHUB_REF_NAME#v}" bash build.sh
 
+      - name: Sign update
+        env:
+          DRIFTLINE_SIGNING_KEY: ${{ secrets.DRIFTLINE_SIGNING_KEY }}
+        run: |
+          if [ -z "$DRIFTLINE_SIGNING_KEY" ]; then
+            echo "::warning::DRIFTLINE_SIGNING_KEY not set: users will be sent to the download page instead of one-click updates."
+          else
+            swift scripts/sign-update.swift build/Driftline.zip
+          fi
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           name: Driftline ${{ github.ref_name }}
-          files: build/Driftline.zip
+          fail_on_unmatched_files: false
+          files: |
+            build/Driftline.zip
+            build/Driftline.zip.sig
           generate_release_notes: true
           body: |
             **Driftline by Apavin**: your internet speed, live in the Mac menu bar.

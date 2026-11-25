@@ -128,6 +128,14 @@ enum StatusRenderer {
     }
 }
 
+// MARK: - Popover size
+
+/// The popover is one fixed size for every tab, so it never grows or shrinks while you click around.
+enum PopoverMetrics {
+    static let width: CGFloat = 390
+    static let height: CGFloat = 560
+}
+
 // MARK: - Popover UI state
 
 /// Holds the popover's view state. Used instead of SwiftUI's @State, which on newer
