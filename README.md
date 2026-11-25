@@ -20,7 +20,9 @@ Your internet speed, live in the Mac menu bar. Free and open source.</p>
 - **Live dashboard.** A smooth 90-second graph, peak speeds, and data sent and received this session.
 - **Speed test.** Ping, jitter, and multi-stream download and upload, measured against Cloudflare's global network.
 - **Keep Awake.** Stop your Mac sleeping for 15m to 8h, until a set time, or **until your downloads finish**. You can let the display sleep while the Mac keeps running, and it stops automatically at 20% battery. Right-click the menu bar item to toggle it.
-- **Friends.** Link Macs with a 6-character room code. Your friend's character sits on your desktop and acts out gestures you send each other: wave, heart, high five, coffee break and more.
+- **Friends.** Link Macs with a 6-character room code. Your friend's character sits on your desktop in a frosted-glass bubble and acts out gestures you send each other: wave, heart, high five, coffee break and more.
+- **Messages on the desktop.** Type a message to everyone or to one friend, and it pops up above your character on their screen. Double-click a friend's character to reply. Messages are end-to-end encrypted and never stored.
+- **Per-app volume.** Turn Spotify down without touching Zoom: every app playing sound gets its own slider and mute button (macOS 14.2 or later).
 - **History.** Your last 25 speed tests, saved on your Mac.
 - Lightweight: native Swift, no Dock icon, almost no CPU use.
 
@@ -52,14 +54,16 @@ bash build.sh --install
 | `Sources/NetStats.swift` | Reads 64-bit per-interface byte counters from the kernel (`sysctl NET_RT_IFLIST2`). It skips VPN tunnels and virtual interfaces so traffic isn't counted twice. |
 | `Sources/SpeedTester.swift` | Ping from the measured round-trip time minus the server's processing time, plus parallel download and upload streams with a 2-second warm-up discarded. |
 | `Sources/AwakeController.swift` | Keep Awake through standard macOS power assertions (the same mechanism `caffeinate` uses). |
-| `Sources/Friends.swift`, `Buddy.swift` | Friends rooms over a WebSocket, and code-drawn animated characters. |
+| `Sources/Friends.swift`, `Buddy.swift` | Friends rooms over a WebSocket, encrypted messages (AES-GCM, key derived from the room code), and code-drawn animated characters. |
+| `Sources/Mixer.swift` | Per-app volume using Core Audio process taps: each adjusted app's audio is tapped, its original muted, and played back with your volume. |
 | `relay/` | The Cloudflare Worker that links Friends rooms: one Durable Object per room, using WebSocket hibernation. |
 
 ## Privacy
 
 - Live speed and Keep Awake run entirely on your Mac.
 - The speed test only talks to `speed.cloudflare.com`.
-- Friends sends only your display name, chosen character, color and gestures to the relay, and only to people in your room. Nothing is stored. Anyone with a room code can join that room, so share codes only with people you know.
+- Friends sends only your display name, chosen character, color, gestures and messages, and only to people in your room. Nothing is stored. The relay only sees a hash of your room code, and messages are encrypted with a key made from the code, so the relay can't read them. Anyone with a room code can join that room, so share codes only with people you know.
+- Per-app volume needs the "System Audio Recording" permission so it can adjust an app's sound. Audio is processed live on your Mac and never recorded or saved.
 
 ## Run your own Friends relay
 

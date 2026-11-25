@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let awake = AwakeController()
     private let friends = FriendsController()
     private let ui = UIState()
+    private let mixer = AppVolumeMixer()
     private var buddyPanel: BuddyPanelController!
     private var friendsObserver: AnyCancellable?
     private var flash: (emoji: String, until: Date)?
@@ -40,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageOnly
         }
 
-        let hosting = NSHostingController(rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends, ui: ui))
+        let hosting = NSHostingController(rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends, mixer: mixer, ui: ui))
         hosting.sizingOptions = .preferredContentSize
         popover.contentViewController = hosting
         popover.behavior = .transient
@@ -63,7 +64,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSSound(named: NSSound.Name("Pop"))?.play()
             }
         }
+        friends.onMessage = { [weak self] peer, _ in
+            guard let self else { return }
+            self.flash = ("💬", Date().addingTimeInterval(5))
+            self.updateStatusItem()
+            if UserDefaults.standard.bool(forKey: FriendsController.soundKey) {
+                NSSound(named: NSSound.Name("Tink"))?.play()
+            }
+        }
+        friends.onRequestReply = { [weak self] peer in
+            guard let self else { return }
+            self.ui.tab = .friends
+            self.ui.messageTarget = peer.id
+            self.showPopover()
+        }
         friends.start()
+        mixer.start()
         buddyPanel.refresh()
 
         awakeObserver = awake.objectWillChange.sink { [weak self] _ in
@@ -84,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func togglePopover(_ sender: Any?) {
-        guard let button = statusItem.button else { return }
+        guard statusItem.button != nil else { return }
         // Right-click the menu bar item = quick Keep Awake on/off.
         if NSApp.currentEvent?.type == .rightMouseUp {
             awake.toggleIndefinite()
@@ -93,10 +109,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.performClose(sender)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            NSApp.activate(ignoringOtherApps: true)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
         }
+    }
+
+    private func showPopover() {
+        guard let button = statusItem.button else { return }
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     private func updateStatusItem() {

@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 // MARK: - Model
 
@@ -50,6 +51,23 @@ struct Peer: Identifiable, Equatable {
     var online: Bool
     var gesture: BuddyGesture?
     var gestureAt: Date = .distantPast
+    var message: String?
+    var messageAt: Date = .distantPast
+}
+
+/// A typed message, kept in memory only (never written to disk).
+struct ChatMessage: Identifiable, Equatable {
+    let id = UUID()
+    let fromName: String
+    let text: String
+    let date: Date
+    let mine: Bool
+    let privateTo: String?   // name of the recipient for a private message
+}
+
+/// How long a typed message stays on the desktop.
+func messageDuration(_ text: String) -> TimeInterval {
+    min(4 + Double(text.count) * 0.07, 15)
 }
 
 // MARK: - Controller
@@ -70,12 +88,16 @@ final class FriendsController: ObservableObject {
     static let idKey = "friendsDeviceID"
     static let showBuddiesKey = "friendsShowBuddies"
     static let soundKey = "friendsSound"
+    static let opacityKey = "friendsCharacterOpacity"
 
     @Published private(set) var status: Status = .idle
     @Published private(set) var peers: [Peer] = []
     @Published private(set) var roomCode: String?
     @Published private(set) var myGesture: BuddyGesture?
     @Published private(set) var myGestureAt: Date = .distantPast
+    @Published private(set) var myMessage: String?
+    @Published private(set) var myMessageAt: Date = .distantPast
+    @Published private(set) var messages: [ChatMessage] = []
     @Published var lastError: String?
 
     @Published var myName: String {
@@ -93,6 +115,12 @@ final class FriendsController: ObservableObject {
 
     /// Called whenever a friend sends a gesture.
     var onGesture: ((Peer, BuddyGesture) -> Void)?
+    /// Called whenever a friend sends a typed message.
+    var onMessage: ((Peer, String) -> Void)?
+    /// Called when the user double-clicks a friend on the desktop to reply.
+    var onRequestReply: ((Peer) -> Void)?
+
+    static let maxMessageLength = 280
 
     let myId: String
     private var socket: URLSessionWebSocketTask?
@@ -104,7 +132,7 @@ final class FriendsController: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: [Self.showBuddiesKey: true, Self.soundKey: true])
+        d.register(defaults: [Self.showBuddiesKey: true, Self.soundKey: true, Self.opacityKey: 1.0])
 
         if let existing = d.string(forKey: Self.idKey) {
             myId = existing
@@ -160,6 +188,7 @@ final class FriendsController: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.roomKey)
         disconnect()
         peers = []
+        messages = []
         refreshStatus()
     }
 
@@ -168,6 +197,7 @@ final class FriendsController: ObservableObject {
         roomCode = code
         UserDefaults.standard.set(code, forKey: Self.roomKey)
         peers = []
+        messages = []
         connect()
     }
 
@@ -179,6 +209,51 @@ final class FriendsController: ObservableObject {
         var payload: [String: Any] = ["type": "gesture", "gesture": gesture.rawValue]
         if let peerId { payload["to"] = peerId }
         sendJSON(payload)
+    }
+
+    /// Sends a typed message, end-to-end encrypted with a key derived from the room code.
+    @discardableResult
+    func sendMessage(_ raw: String, to peerId: String? = nil) -> Bool {
+        var text = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxMessageLength))
+        while text.utf8.count > 800 { text.removeLast() }
+        guard !text.isEmpty, status == .connected, let key = cipherKey,
+              let sealed = try? AES.GCM.seal(Data(text.utf8), using: key),
+              let combined = sealed.combined else { return false }
+
+        var payload: [String: Any] = ["type": "message", "box": combined.base64EncodedString()]
+        if let peerId { payload["to"] = peerId }
+        sendJSON(payload)
+
+        myMessage = text
+        myMessageAt = Date()
+        let toName = peerId.flatMap { id in peers.first(where: { $0.id == id })?.name }
+        appendMessage(ChatMessage(fromName: myName, text: text, date: Date(), mine: true, privateTo: toName))
+        return true
+    }
+
+    func requestReply(to peer: Peer) {
+        onRequestReply?(peer)
+    }
+
+    private func appendMessage(_ m: ChatMessage) {
+        var list = messages
+        list.append(m)
+        if list.count > 30 { list.removeFirst(list.count - 30) }
+        messages = list
+    }
+
+    // MARK: Crypto
+
+    private var cipherKey: SymmetricKey? {
+        guard let code = roomCode else { return nil }
+        return SymmetricKey(data: SHA256.hash(data: Data("driftline-key-v1:\(code)".utf8)))
+    }
+
+    private static func roomPath(_ code: String) -> String {
+        let hex = SHA256.hash(data: Data("driftline-room-v1:\(code)".utf8))
+            .map { String(format: "%02X", $0) }
+            .joined()
+        return String(hex.prefix(16))
     }
 
     private func scheduleProfileUpdate() {
@@ -215,7 +290,9 @@ final class FriendsController: ObservableObject {
         disconnect()
         guard let base = websocketBase, let code = roomCode else { refreshStatus(); return }
 
-        var comps = URLComponents(url: base.appendingPathComponent("room/\(code)"), resolvingAgainstBaseURL: false)!
+        // The relay only ever sees a hash of the room code, never the code itself.
+        var comps = URLComponents(url: base.appendingPathComponent("room/\(Self.roomPath(code))"),
+                                  resolvingAgainstBaseURL: false)!
         comps.queryItems = [
             URLQueryItem(name: "id", value: myId),
             URLQueryItem(name: "name", value: myName),
@@ -333,6 +410,30 @@ final class FriendsController: ObservableObject {
             peers[i].gestureAt = Date()
             peers[i].online = true
             onGesture?(peers[i], g)
+
+        case "message":
+            guard let from = msg["from"] as? String,
+                  let boxText = msg["box"] as? String,
+                  let i = peers.firstIndex(where: { $0.id == from }),
+                  let key = cipherKey,
+                  let data = Data(base64Encoded: boxText),
+                  let box = try? AES.GCM.SealedBox(combined: data),
+                  let plain = try? AES.GCM.open(box, using: key),
+                  let raw = String(data: plain, encoding: .utf8) else { return }
+            let isPrivate: Bool
+            if let to = msg["to"] as? String {
+                if to != myId { return } // a private message for someone else
+                isPrivate = true
+            } else {
+                isPrivate = false
+            }
+            let text = String(raw.prefix(Self.maxMessageLength))
+            peers[i].message = text
+            peers[i].messageAt = Date()
+            peers[i].online = true
+            appendMessage(ChatMessage(fromName: peers[i].name, text: text, date: Date(), mine: false,
+                                      privateTo: isPrivate ? myName : nil))
+            onMessage?(peers[i], text)
 
         default:
             break

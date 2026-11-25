@@ -20,7 +20,8 @@ mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 
 FLAGS=(-O -swift-version 5 -parse-as-library -sdk "$SDK"
        -framework AppKit -framework SwiftUI -framework SystemConfiguration
-       -framework CoreWLAN -framework ServiceManagement -framework IOKit)
+       -framework CoreWLAN -framework ServiceManagement -framework IOKit
+       -framework CoreAudio -framework AudioToolbox -framework CryptoKit)
 
 BINARIES=()
 for ARCH in arm64 x86_64; do

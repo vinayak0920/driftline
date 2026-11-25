@@ -5,6 +5,7 @@ struct FriendsSection: View {
     @ObservedObject var friends: FriendsController
     @AppStorage(FriendsController.showBuddiesKey) private var showBuddies = true
     @AppStorage(FriendsController.soundKey) private var playSound = true
+    @AppStorage(FriendsController.opacityKey) private var characterOpacity = 1.0
     @ObservedObject var ui: UIState
 
     var body: some View {
@@ -16,15 +17,22 @@ struct FriendsSection: View {
                     profileCard
                     roomCard
                     if friends.roomCode != nil {
+                        composer
                         gestures
+                        messageLog
                         friendList
                     }
                     VStack(alignment: .leading, spacing: 5) {
                         Toggle("Show friends on my desktop", isOn: $showBuddies)
-                        Toggle("Play a sound when a gesture arrives", isOn: $playSound)
+                        Toggle("Play a sound when a gesture or message arrives", isOn: $playSound)
                     }
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))
+                    HStack(spacing: 8) {
+                        Text("Character see-through").font(.system(size: 11))
+                        Slider(value: $characterOpacity, in: 0.3...1)
+                            .controlSize(.small)
+                    }
                     Button("Change relay server…") {
                         ui.relayDraft = friends.relayURL
                         ui.editingRelay = true
@@ -184,6 +192,97 @@ struct FriendsSection: View {
         "\(code.prefix(3))-\(code.suffix(3))"
     }
 
+    // MARK: Messages
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Menu {
+                    Button("Everyone") { ui.messageTarget = nil }
+                    if !friends.peers.isEmpty { Divider() }
+                    ForEach(friends.peers) { peer in
+                        Button(peer.name) { ui.messageTarget = peer.id }
+                    }
+                } label: {
+                    Text(targetLabel)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Choose who sees this message")
+
+                TextField("Type a message…", text: $ui.messageDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .onSubmit(sendDraft)
+
+                Button(action: sendDraft) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(canSend ? Color.driftDown : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .help("Send")
+            }
+            if ui.messageDraft.count > FriendsController.maxMessageLength - 40 {
+                Text("\(ui.messageDraft.count)/\(FriendsController.maxMessageLength)")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(ui.messageDraft.count > FriendsController.maxMessageLength ? Color.red : Color.secondary)
+            }
+        }
+    }
+
+    private var targetLabel: String {
+        if let id = ui.messageTarget, let peer = friends.peers.first(where: { $0.id == id }) {
+            return "To \(peer.name)"
+        }
+        return "To everyone"
+    }
+
+    private var canSend: Bool {
+        friends.status == .connected
+            && !ui.messageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func sendDraft() {
+        guard canSend else { return }
+        if friends.sendMessage(ui.messageDraft, to: ui.messageTarget) {
+            ui.messageDraft = ""
+        }
+    }
+
+    @ViewBuilder
+    private var messageLog: some View {
+        if !friends.messages.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(friends.messages.suffix(6)) { m in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(m.mine ? "You" : m.fromName)
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            .foregroundStyle(m.mine ? Color.driftDown : Color.primary)
+                        Text(m.text)
+                            .font(.system(size: 11))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        if m.privateTo != nil {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.secondary)
+                                .help(m.mine ? "Only \(m.privateTo ?? "") sees this" : "Sent only to you")
+                        }
+                    }
+                }
+                Text("Messages are end-to-end encrypted and disappear when you quit.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.04)))
+        }
+    }
+
     // MARK: Gestures
 
     private var gestures: some View {
@@ -236,6 +335,8 @@ struct FriendsSection: View {
                         }
                         Spacer()
                         Menu {
+                            Button("💬  Message \(peer.name)") { ui.messageTarget = peer.id }
+                            Divider()
                             ForEach(BuddyGesture.allCases) { g in
                                 Button("\(g.emoji)  \(g.label)") { friends.send(g, to: peer.id) }
                             }

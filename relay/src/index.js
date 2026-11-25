@@ -1,6 +1,8 @@
-// Driftline Friends relay: one Durable Object per room code.
-// Each Mac holds one WebSocket. The relay forwards profiles and gestures
-// between the people in the room and nothing else. No messages are stored.
+// Driftline Friends relay: one Durable Object per room.
+// Each Mac holds one WebSocket. The relay forwards profiles, gestures and
+// encrypted messages between people in the same room. Nothing is stored.
+// Since v1.1 the app sends a hash of the room code (not the code itself) and
+// encrypts messages with a key derived from the code, so the relay can't read them.
 import { DurableObject } from "cloudflare:workers";
 
 const CHARACTERS = new Set(["mochi", "pebble", "ghosty", "bean"]);
@@ -12,7 +14,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/") return new Response("Driftline relay is running.");
 
-    const match = url.pathname.match(/^\/room\/([A-Z0-9]{6})$/);
+    const match = url.pathname.match(/^\/room\/([A-Z0-9]{6,32})$/);
     if (!match) return new Response("Not found", { status: 404 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected a WebSocket", { status: 426 });
@@ -74,7 +76,7 @@ export class Room extends DurableObject {
   }
 
   async webSocketMessage(ws, data) {
-    if (typeof data !== "string" || data.length > 2000) return;
+    if (typeof data !== "string" || data.length > 4000) return;
     let msg;
     try { msg = JSON.parse(data); } catch { return; }
     const me = ws.deserializeAttachment();
@@ -83,6 +85,10 @@ export class Room extends DurableObject {
     if (msg.type === "gesture" && GESTURES.has(msg.gesture)) {
       const to = typeof msg.to === "string" ? msg.to.slice(0, 64) : null;
       this.broadcast({ type: "gesture", from: me.id, gesture: msg.gesture, to }, ws);
+    } else if (msg.type === "message" && typeof msg.box === "string"
+               && msg.box.length <= 1500 && /^[A-Za-z0-9+/=]+$/.test(msg.box)) {
+      const to = typeof msg.to === "string" ? msg.to.slice(0, 64) : null;
+      this.broadcast({ type: "message", from: me.id, box: msg.box, to }, ws);
     } else if (msg.type === "profile") {
       const updated = sanitize({ ...msg, id: me.id });
       ws.serializeAttachment(updated);

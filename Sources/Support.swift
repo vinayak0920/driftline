@@ -144,4 +144,6 @@ final class UIState: ObservableObject {
     @Published var relayDraft = ""
     @Published var editingRelay = false
     @Published var copied = false
+    @Published var messageDraft = ""
+    @Published var messageTarget: String?
 }

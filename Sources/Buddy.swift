@@ -329,24 +329,29 @@ extension Color {
 
 // MARK: - Desktop stage
 
-/// Friends sitting together on your desktop. Drag to move, click to wave, right-click for gestures.
+/// Friends sitting together on your desktop.
+/// Drag to move, click to wave, double-click to reply, right-click for gestures.
 struct BuddyStage: View {
     @ObservedObject var friends: FriendsController
+    @AppStorage(FriendsController.opacityKey) private var characterOpacity = 1.0
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 4) {
+        HStack(alignment: .bottom, spacing: 0) {
             ForEach(friends.peers) { peer in
-                BuddySeat(peer: peer)
+                BuddySeat(peer: peer, characterOpacity: characterOpacity)
+                    .onTapGesture(count: 2) { friends.requestReply(to: peer) }
                     .onTapGesture { friends.send(.wave, to: peer.id) }
                     .contextMenu {
+                        Button("💬  Reply to \(peer.name)…") { friends.requestReply(to: peer) }
+                        Divider()
                         ForEach(BuddyGesture.allCases) { g in
                             Button("\(g.emoji)  \(g.label)") { friends.send(g, to: peer.id) }
                         }
                     }
-                    .help("\(peer.name): click to wave, right-click for more")
+                    .help("\(peer.name): click to wave, double-click to reply, right-click for more")
             }
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
@@ -354,50 +359,89 @@ struct BuddyStage: View {
 
 struct BuddySeat: View {
     let peer: Peer
+    var characterOpacity: Double = 1
 
     var body: some View {
-        VStack(spacing: 2) {
-            ZStack(alignment: .top) {
-                BuddyView(kind: peer.kind, colorIndex: peer.color, gesture: peer.gesture,
-                          gestureAt: peer.gestureAt, online: peer.online)
-                    .frame(width: 96, height: 96)
-                    .padding(.top, 34)
-                TimelineView(.periodic(from: .now, by: 0.25)) { tl in
-                    let age = tl.date.timeIntervalSince(peer.gestureAt)
-                    if let g = peer.gesture, age >= 0, age < gestureDuration + 0.6 {
-                        SpeechBubble(text: "\(g.emoji) \(g.label)")
-                            .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    }
-                }
-                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: peer.gestureAt)
+        VStack(spacing: 4) {
+            // Bubble area: the newest of a typed message or a gesture.
+            TimelineView(.periodic(from: .now, by: 0.25)) { tl in
+                bubble(at: tl.date)
+                    .frame(width: 150, height: 84, alignment: .bottom)
             }
+
+            BuddyView(kind: peer.kind, colorIndex: peer.color, gesture: peer.gesture,
+                      gestureAt: peer.gestureAt, online: peer.online)
+                .frame(width: 92, height: 92)
+                .opacity(characterOpacity)
+
             Text(peer.name)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .lineLimit(1)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(.ultraThinMaterial))
-                .overlay(Capsule().strokeBorder(BuddyPalette.color(peer.color).opacity(0.7), lineWidth: 1))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2.5)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(GlassEdge.gradient, lineWidth: 0.8))
+                .overlay(alignment: .leading) {
+                    Circle()
+                        .fill(peer.online ? Color.green : Color.secondary)
+                        .frame(width: 5, height: 5)
+                        .offset(x: -8)
+                }
         }
-        .frame(width: 112)
+        .frame(width: 150)
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func bubble(at now: Date) -> some View {
+        let messageAge = now.timeIntervalSince(peer.messageAt)
+        let gestureAge = now.timeIntervalSince(peer.gestureAt)
+        let showMessage = peer.message != nil && messageAge >= 0
+            && messageAge < messageDuration(peer.message ?? "")
+        let showGesture = peer.gesture != nil && gestureAge >= 0 && gestureAge < gestureDuration + 0.6
+
+        if showMessage, (!showGesture || peer.messageAt >= peer.gestureAt), let text = peer.message {
+            GlassBubble(text: text, multiline: true)
+                .transition(.scale(scale: 0.7, anchor: .bottom).combined(with: .opacity))
+                .id(peer.messageAt)
+        } else if showGesture, let g = peer.gesture {
+            GlassBubble(text: "\(g.emoji) \(g.label)")
+                .transition(.scale(scale: 0.6, anchor: .bottom).combined(with: .opacity))
+                .id(peer.gestureAt)
+        }
     }
 }
 
-struct SpeechBubble: View {
+/// Apple-style frosted glass: translucent material, a bright top edge and a soft shadow.
+enum GlassEdge {
+    static let gradient = LinearGradient(colors: [Color.white.opacity(0.6), Color.white.opacity(0.08)],
+                                         startPoint: .top, endPoint: .bottom)
+}
+
+struct GlassBubble: View {
     let text: String
+    var multiline = false
+
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor))
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-            )
-            .fixedSize()
+            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+            .multilineTextAlignment(.center)
+            .lineLimit(multiline ? 4 : 1)
+            .fixedSize(horizontal: !multiline, vertical: true)
+            .frame(maxWidth: multiline ? 144 : nil)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(GlassEdge.gradient, lineWidth: 0.8))
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
     }
+}
+
+/// Kept for the popover preview of your own character.
+struct SpeechBubble: View {
+    let text: String
+    var body: some View { GlassBubble(text: text, multiline: true) }
 }
 
 // MARK: - Floating panel
@@ -412,8 +456,8 @@ private final class DraggableHostingView<Content: View>: NSHostingView<Content> 
 final class BuddyPanelController {
     private let panel: NSPanel
     private let friends: FriendsController
-    private let seatWidth: CGFloat = 116
-    private let height: CGFloat = 170
+    private let seatWidth: CGFloat = 150
+    private let height: CGFloat = 220
 
     init(friends: FriendsController) {
         self.friends = friends
@@ -446,7 +490,7 @@ final class BuddyPanelController {
         // Grow leftwards so the right edge stays put.
         let width = CGFloat(count) * seatWidth + 16
         var frame = panel.frame
-        if abs(frame.width - width) > 0.5 {
+        if abs(frame.width - width) > 0.5 || abs(frame.height - height) > 0.5 {
             frame.origin.x += frame.width - width
             frame.size = NSSize(width: width, height: height)
             panel.setFrame(frame, display: true)

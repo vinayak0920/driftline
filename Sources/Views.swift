@@ -6,13 +6,14 @@ struct PopoverView: View {
     @ObservedObject var tester: SpeedTester
     @ObservedObject var awake: AwakeController
     @ObservedObject var friends: FriendsController
+    @ObservedObject var mixer: AppVolumeMixer
 
     @AppStorage(Prefs.useBitsKey) private var useBits = true
     @AppStorage(Prefs.menuStyleKey) private var menuStyle = MenuStyle.stacked.rawValue
     @ObservedObject var ui: UIState
 
     enum Tab: String, CaseIterable, Identifiable {
-        case live = "Live", test = "Test", awake = "Awake", friends = "Friends", history = "History"
+        case live = "Live", test = "Test", awake = "Awake", sound = "Sound", friends = "Friends", history = "History"
         var id: String { rawValue }
     }
 
@@ -35,6 +36,7 @@ struct PopoverView: View {
                 case .live: LiveSection(monitor: monitor, useBits: useBits)
                 case .test: TestSection(tester: tester, networkLabel: networkLabel)
                 case .awake: AwakeSection(awake: awake, ui: ui)
+                case .sound: SoundSection(mixer: mixer)
                 case .friends: FriendsSection(friends: friends, ui: ui)
                 case .history: HistorySection(tester: tester)
                 }
@@ -47,7 +49,7 @@ struct PopoverView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
         }
-        .frame(width: 360)
+        .frame(width: 390)
     }
 
     private var networkLabel: String {
