@@ -154,4 +154,31 @@ final class UIState: ObservableObject {
     @Published var copied = false
     @Published var messageDraft = ""
     @Published var messageTarget: String?
+    /// Set by the app: closes the panel (used by the ✕ button).
+    var closePanel: (() -> Void)?
+}
+
+// MARK: - Flat controls
+
+/// Driftline's own button look. Newer macOS versions make standard buttons briefly swell
+/// when clicked; this style stays perfectly still and just dims slightly while pressed.
+struct FlatButtonStyle: ButtonStyle {
+    var prominent = false
+    var tint: Color = .driftDown
+    var large = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: large ? 13 : 11.5, weight: .semibold))
+            .padding(.horizontal, large ? 14 : 10)
+            .padding(.vertical, large ? 8 : 4)
+            .frame(minHeight: large ? 32 : 22)
+            .background(
+                RoundedRectangle(cornerRadius: large ? 9 : 7, style: .continuous)
+                    .fill(prominent ? tint : Color.primary.opacity(0.09))
+            )
+            .foregroundStyle(prominent ? Color.black.opacity(0.85) : Color.primary)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .contentShape(Rectangle())
+    }
 }

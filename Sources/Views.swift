@@ -11,7 +11,6 @@ struct PopoverView: View {
 
     @AppStorage(Prefs.useBitsKey) private var useBits = true
     @AppStorage(Prefs.menuStyleKey) private var menuStyle = MenuStyle.stacked.rawValue
-    @AppStorage(Updater.autoCheckKey) private var autoUpdate = true
     @ObservedObject var ui: UIState
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -28,10 +27,25 @@ struct PopoverView: View {
 
             UpdateBanner(updater: updater)
 
-            Picker("", selection: $ui.tab) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+            HStack(spacing: 2) {
+                ForEach(Tab.allCases) { tab in
+                    Button { ui.tab = tab } label: {
+                        Text(tab.rawValue)
+                            .font(.system(size: 11.5, weight: ui.tab == tab ? .semibold : .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(ui.tab == tab ? Color.primary.opacity(0.14) : Color.clear)
+                            )
+                            .foregroundStyle(ui.tab == tab ? Color.primary : Color.secondary)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .pickerStyle(.segmented)
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.06)))
             .labelsHidden()
             .padding(.horizontal, 16)
 
@@ -55,6 +69,7 @@ struct PopoverView: View {
                 .padding(.vertical, 8)
         }
         .frame(width: PopoverMetrics.width, height: PopoverMetrics.height)
+        .buttonStyle(FlatButtonStyle())   // no "swell on click" for any button inside
     }
 
     private var networkLabel: String {
@@ -80,6 +95,19 @@ struct PopoverView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Capsule().fill(Color.primary.opacity(0.07)))
+
+            Button {
+                ui.closePanel?()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.primary.opacity(0.08)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Close (Esc)")
         }
     }
 
@@ -89,33 +117,10 @@ struct PopoverView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             Spacer()
-            Menu {
-                Toggle("Show speeds in bits (Mb/s)", isOn: $useBits)
-                Picker("Menu bar style", selection: $menuStyle) {
-                    ForEach(MenuStyle.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-                Toggle("Launch at login", isOn: Binding(
-                    get: { ui.loginEnabled },
-                    set: { LoginItem.set($0); ui.loginEnabled = LoginItem.isEnabled }
-                ))
-                Toggle("Keep Mac awake", isOn: Binding(
-                    get: { awake.isActive },
-                    set: { $0 ? awake.start(.indefinite) : awake.stop() }
-                ))
-                Divider()
-                Button("Reset session stats") { monitor.resetSession() }
-                Divider()
-                Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }
-                Toggle("Check for updates automatically", isOn: $autoUpdate)
-                Text("Version \(updater.currentVersion)")
-                Divider()
-                Button("Quit Driftline") { NSApp.terminate(nil) }
-            } label: {
-                Image(systemName: "gearshape.fill")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            // Its own view, so the every-second speed refresh doesn't rebuild the open
+            // menu (which made submenus flicker and close).
+            SettingsMenu(ui: ui, updater: updater, monitor: monitor)
+                .equatable()
         }
     }
 
@@ -310,9 +315,7 @@ struct TestSection: View {
             } label: {
                 Text(buttonTitle).font(.system(size: 13, weight: .semibold)).frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(tester.isRunning ? .gray : .driftDown)
+            .buttonStyle(FlatButtonStyle(prominent: true, tint: tester.isRunning ? .gray : .driftDown, large: true))
         }
     }
 
@@ -536,9 +539,7 @@ struct AwakeSection: View {
             Button(active ? "Stop" : "Keep Awake") {
                 if active { awake.stop() } else { ui.awakeSelected = "∞"; awake.start(.indefinite) }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(active ? .gray : .driftAwake)
-            .foregroundStyle(active ? Color.white : Color.black)
+            .buttonStyle(FlatButtonStyle(prominent: true, tint: active ? .gray : .driftAwake))
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
@@ -696,8 +697,7 @@ struct UpdateBanner: View {
                 Spacer()
                 Button("Update") { updater.installAvailable() }
                     .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.driftDown)
+                    .buttonStyle(FlatButtonStyle(prominent: true))
             }
         case .downloading(let progress):
             banner {
@@ -721,5 +721,48 @@ struct UpdateBanner: View {
             .background(RoundedRectangle(cornerRadius: 9).fill(Color.driftDown.opacity(0.12)))
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
+    }
+}
+
+// MARK: - Settings menu
+
+/// The gear menu. It only redraws when one of its own settings changes, never on the
+/// once-a-second speed updates, so menus and submenus stay open while you use them.
+struct SettingsMenu: View, Equatable {
+    @ObservedObject var ui: UIState
+    @ObservedObject var updater: Updater
+    let monitor: NetworkMonitor
+
+    @AppStorage(Prefs.useBitsKey) private var useBits = true
+    @AppStorage(Prefs.menuStyleKey) private var menuStyle = MenuStyle.stacked.rawValue
+    @AppStorage(Updater.autoCheckKey) private var autoUpdate = true
+
+    // The parent redraws every second; tell SwiftUI this view never needs to follow it.
+    static func == (lhs: SettingsMenu, rhs: SettingsMenu) -> Bool { true }
+
+    var body: some View {
+        Menu {
+            Toggle("Show speeds in bits (Mb/s)", isOn: $useBits)
+            Picker("Menu bar style", selection: $menuStyle) {
+                ForEach(MenuStyle.allCases) { Text($0.label).tag($0.rawValue) }
+            }
+            Toggle("Launch at login", isOn: Binding(
+                get: { ui.loginEnabled },
+                set: { LoginItem.set($0); ui.loginEnabled = LoginItem.isEnabled }
+            ))
+            Divider()
+            Button("Reset session stats") { monitor.resetSession() }
+            Divider()
+            Button("Check for Updates…") { Task { await updater.check(userInitiated: true) } }
+            Toggle("Check for updates automatically", isOn: $autoUpdate)
+            Text("Version \(updater.currentVersion)")
+            Divider()
+            Button("Quit Driftline") { NSApp.terminate(nil) }
+        } label: {
+            Image(systemName: "gearshape.fill")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }

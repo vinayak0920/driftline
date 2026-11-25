@@ -30,7 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var flash: (emoji: String, until: Date)?
     private var awakeObserver: AnyCancellable?
     private var statusItem: NSStatusItem!
-    private let popover = NSPopover()
+    private var dropdown: DropdownController!
     private var defaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,14 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.imagePosition = .imageOnly
         }
 
-        let hosting = NSHostingController(rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends, mixer: mixer, updater: updater, ui: ui))
-        // Fixed size: the popover never resizes when you switch tabs or a banner appears.
-        hosting.sizingOptions = []
-        hosting.view.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.width, height: PopoverMetrics.height)
-        popover.contentViewController = hosting
-        popover.contentSize = NSSize(width: PopoverMetrics.width, height: PopoverMetrics.height)
-        popover.behavior = .transient
-        popover.animates = false  // no zoom-in "pop": the panel appears at its final size
+        // A fixed-size dropdown window: no pop animation and no resizing.
+        dropdown = DropdownController(
+            rootView: PopoverView(monitor: monitor, tester: tester, awake: awake, friends: friends,
+                                  mixer: mixer, updater: updater, ui: ui),
+            size: NSSize(width: PopoverMetrics.width, height: PopoverMetrics.height))
+        ui.closePanel = { [weak self] in self?.dropdown.close() }
 
         monitor.onTick = { [weak self] in
             guard let self else { return }
@@ -111,8 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             awake.toggleIndefinite()
             return
         }
-        if popover.isShown {
-            popover.performClose(sender)
+        if dropdown.isShown {
+            dropdown.close()
         } else {
             showPopover()
         }
@@ -120,11 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPopover() {
         guard let button = statusItem.button else { return }
-        if !popover.isShown {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        popover.contentViewController?.view.window?.makeKey()
+        dropdown.show(below: button)
     }
 
     private func updateStatusItem() {

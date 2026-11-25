@@ -70,9 +70,9 @@ struct FriendsSection: View {
                     ui.editingRelay = false
                     friends.start()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.driftDown)
+                .buttonStyle(FlatButtonStyle(prominent: true))
                 .disabled(ui.relayDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .opacity(ui.relayDraft.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
             }
         }
         .padding(12)
@@ -150,8 +150,7 @@ struct FriendsSection: View {
                     .font(.system(size: 9.5, weight: .semibold)).tracking(0.8).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     Button("Create a room") { friends.createRoom() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.driftDown)
+                        .buttonStyle(FlatButtonStyle(prominent: true))
                     Text("or").font(.system(size: 10)).foregroundStyle(.secondary)
                     TextField("CODE", text: $ui.joinCode)
                         .textFieldStyle(.roundedBorder)
@@ -160,6 +159,7 @@ struct FriendsSection: View {
                         .onSubmit { if friends.join(ui.joinCode) { ui.joinCode = "" } }
                     Button("Join") { if friends.join(ui.joinCode) { ui.joinCode = "" } }
                         .disabled(ui.joinCode.count < 6)
+                        .opacity(ui.joinCode.count < 6 ? 0.5 : 1)
                 }
                 if let error = friends.lastError {
                     Text(error).font(.system(size: 10)).foregroundStyle(.red)

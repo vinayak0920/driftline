@@ -7,7 +7,7 @@
 Your internet speed, live in the Mac menu bar. Free and open source.</p>
 
 <p align="center">
-  <a href="https://apavin.com/driftline/download"><b>⬇ Download for Mac</b></a> ·
+  <a href="https://github.com/vinayak0920/driftline/releases/latest/download/Driftline.zip"><b>⬇ Download for Mac</b></a> ·
   <a href="https://apavin.com/driftline">Website</a> ·
   <a href="../../releases">All releases</a>
 </p>
@@ -28,7 +28,7 @@ Your internet speed, live in the Mac menu bar. Free and open source.</p>
 
 ## Install
 
-1. Download **Driftline.zip** from the [latest release](../../releases/latest) (or [apavin.com/driftline](https://apavin.com/driftline)).
+1. **[Download Driftline.zip](https://github.com/vinayak0920/driftline/releases/latest/download/Driftline.zip)**. The download starts right away and always gets the newest version.
 2. Unzip it and drag **Driftline** into **Applications**.
 3. Open it. The first time, macOS may say it can't verify the developer, because Driftline isn't distributed through the App Store. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run this once in Terminal:
    ```bash
